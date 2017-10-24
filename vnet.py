@@ -12,6 +12,7 @@ def ELUCons(elu, nchan):
     else:
         return nn.PReLU(nchan)
 
+
 # normalization between sub-volumes is necessary
 # for good performance
 class ContBatchNorm3d(nn.modules.batchnorm._BatchNorm):
@@ -19,7 +20,7 @@ class ContBatchNorm3d(nn.modules.batchnorm._BatchNorm):
         if input.dim() != 5:
             raise ValueError('expected 5D input (got {}D input)'
                              .format(input.dim()))
-        super(ContBatchNorm3d, self)._check_input_dim(input)
+        # super(ContBatchNorm3d, self)._check_input_dim(input)
 
     def forward(self, input):
         self._check_input_dim(input)
@@ -59,7 +60,7 @@ class InputTransition(nn.Module):
         out = self.bn1(self.conv1(x))
         # split input in to 16 channels
         x16 = torch.cat((x, x, x, x, x, x, x, x,
-                         x, x, x, x, x, x, x, x), 0)
+                         x, x, x, x, x, x, x, x), 1)
         out = self.relu1(torch.add(out, x16))
         return out
 
@@ -150,6 +151,7 @@ class VNet(nn.Module):
         self.up_tr32 = UpTransition(64, 32, 1, elu)
         self.out_tr = OutputTransition(32, elu, nll)
 
+    
     # The network topology as described in the diagram
     # in the VNet paper
     # def __init__(self):
@@ -166,6 +168,7 @@ class VNet(nn.Module):
     #     self.up_tr64 = UpTransition(64, 2)
     #     self.up_tr32 = UpTransition(32, 1)
     #     self.out_tr = OutputTransition(16)
+
     def forward(self, x):
         out16 = self.in_tr(x)
         out32 = self.down_tr32(out16)
@@ -178,3 +181,25 @@ class VNet(nn.Module):
         out = self.up_tr32(out, out16)
         out = self.out_tr(out)
         return out
+
+    # def __init__(self, elu=True, nll=False):
+    #     super(VNet, self).__init__()
+    #     self.in_tr = InputTransition(16, elu)
+    #     self.down_tr32 = DownTransition(16, 1, elu)
+    #     self.down_tr64 = DownTransition(32, 2, elu)
+    #     self.down_tr128 = DownTransition(64, 3, elu, dropout=True)
+    #     # self.down_tr256 = DownTransition(128, 2, elu, dropout=True)
+    #     # self.up_tr256 = UpTransition(256, 256, 2, elu, dropout=True)
+    #     # self.up_tr128 = UpTransition(256, 128, 2, elu, dropout=True)
+    #     self.up_tr64 = UpTransition(128, 64, 1, elu)
+    #     self.up_tr32 = UpTransition(64, 32, 1, elu)
+    #     self.out_tr = OutputTransition(32, elu, nll)
+    # def forward(self, x):
+    #     out16 = self.in_tr(x)
+    #     out32 = self.down_tr32(out16)
+    #     out64 = self.down_tr64(out32)
+    #     out128 = self.down_tr128(out64)
+    #     out = self.up_tr64(out128, out64)
+    #     out = self.up_tr32(out, out32)
+    #     out = self.out_tr(out)
+    #     return out

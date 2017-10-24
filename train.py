@@ -28,7 +28,7 @@ import math
 
 import shutil
 
-import setproctitle
+# import setproctitle
 
 import vnet
 import make_graph
@@ -43,11 +43,14 @@ import operator
 #ct_targets = nodule_masks
 
 
-nodule_masks = "normalized_brightened_CT_2_5"
-lung_masks = "inferred_seg_lungs_2_5"
-ct_images = "luna16_ct_normalized"
-ct_targets = nodule_masks
+nodule_masks = "normalized_nodule_masks"
+lung_masks = "normalized_lung_masks"
+ct_images = "normalized_ct_images"
+# ct_targets = nodule_masks
+ct_targets = lung_masks
+
 target_split = [2, 2, 2]
+#target_split = [4, 4, 4]
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -83,14 +86,44 @@ def inference(args, loader, model, transforms):
             data.pin_memory()
             data = data.cuda()
         data = Variable(data, volatile=True)
-        output = model(data)
+        try:
+            output = model(data)
+        except Exception, e:
+            print e
+            return
+
         _, output = output.max(1)
         output = output.view(shape)
         output = output.cpu()
         # merge subvolumes and save
         results = output.chunk(nvols)
-        results = map(lambda var : torch.squeeze(var.data).numpy().astype(np.int16), results)
-        volume = utils.merge_image([*results], target_split)
+        results = map(lambda var: torch.squeeze(var.data).numpy().astype(np.int16), results)
+        # results = map(lambda var: var.transpose([1, 2, 0]), results)
+        image_size = shape[-3:]
+        # transform torch.ToTensor altered results back
+        image_size = [image_size[1], image_size[2], image_size[0]]
+        new_results = []
+        for img in results:
+            img = img.reshape(image_size)
+            new_results.append(img)
+        results = new_results
+        volume = utils.merge_image(results, target_split)
+
+        # volume = np.zeros([128, 128, 128])
+        # z_p, y_p, x_p = 2, 2, 2
+        # z_incr, y_incr, x_incr = 64, 64, 64
+        # idx = 0
+        # for zi in range(z_p):
+        #     zstart = zi * z_incr
+        #     zend = zstart + z_incr
+        #     for yi in range(y_p):
+        #         ystart = yi * y_incr
+        #         yend = ystart + y_incr
+        #         for xi in range(x_p):
+        #             xstart = xi * x_incr
+        #             xend = xstart + x_incr
+        #             volume[zstart:zend, ystart:yend, xstart:xend] = results[idx]
+        #             idx +=1
         print("save {}".format(series))
         utils.save_updated_image(volume, os.path.join(dst, series + ".mhd"), origin, spacing)
 
@@ -102,8 +135,8 @@ def noop(x):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batchSz', type=int, default=10)
-    parser.add_argument('--dice', action='store_true')
+    parser.add_argument('--batchSz', type=int, default=1)
+    parser.add_argument('--dice', default=False, action='store_true')
     parser.add_argument('--ngpu', type=int, default=1)
     parser.add_argument('--nEpochs', type=int, default=300)
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
@@ -119,20 +152,25 @@ def main():
     # rapid learning for nodule masks
     parser.add_argument('--weight-decay', '--wd', default=1e-8, type=float,
                         metavar='W', help='weight decay (default: 1e-8)')
-    parser.add_argument('--no-cuda', action='store_true')
+    parser.add_argument('--no-cuda', default=False, action='store_true')
     parser.add_argument('--save')
     parser.add_argument('--seed', type=int, default=1)
-    parser.add_argument('--opt', type=str, default='adam',
+    parser.add_argument('--opt', type=str, default='sgd',
                         choices=('sgd', 'adam', 'rmsprop'))
     args = parser.parse_args()
     best_prec1 = 100.
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+
+    if not args.cuda:
+        print 'no cuda support!\n'
+
     args.save = args.save or 'work/vnet.base.{}'.format(datestr())
     nll = True
     if args.dice:
         nll = False
     weight_decay = args.weight_decay
-    setproctitle.setproctitle(args.save)
+
+    # setproctitle.setproctitle(args.save)
 
     torch.manual_seed(args.seed)
     if args.cuda:
@@ -140,9 +178,13 @@ def main():
 
     print("build vnet")
     model = vnet.VNet(elu=False, nll=nll)
-    batch_size = args.ngpu*args.batchSz
-    gpu_ids = range(args.ngpu)
-    model = nn.parallel.DataParallel(model, device_ids=gpu_ids)
+
+    if args.cuda:
+        batch_size = args.ngpu*args.batchSz
+        gpu_ids = range(args.ngpu)
+        model = nn.parallel.DataParallel(model, device_ids=gpu_ids)
+    else:
+        batch_size = args.batchSz
 
     if args.resume:
         if os.path.isfile(args.resume):
@@ -174,21 +216,21 @@ def main():
 
     if os.path.exists(args.save):
         shutil.rmtree(args.save)
-    os.makedirs(args.save, exist_ok=True)
+    os.makedirs(args.save)
 
     # LUNA16 dataset isotropically scaled to 2.5mm^3
     # and then truncated or zero-padded to 160x128x160
-    normMu = [-642.794]
-    normSigma = [459.512]
+    normMu = [-510.154]
+    normSigma = [474.620]
     normTransform = transforms.Normalize(normMu, normSigma)
 
     trainTransform = transforms.Compose([
         transforms.ToTensor(),
-        normTransform
+        # normTransform
     ])
     testTransform = transforms.Compose([
         transforms.ToTensor(),
-        normTransform
+        # normTransform
     ])
     if ct_targets == nodule_masks:
         masks = lung_masks
@@ -205,22 +247,24 @@ def main():
         inference_batch_size = args.ngpu
         root = os.path.dirname(src)
         images = os.path.basename(src)
+        print "inferencing root: {0}, img:{1}".format(root, images)
         dataset = dset.LUNA16(root=root, images=images, transform=testTransform, split=target_split, mode="infer")
         loader = DataLoader(dataset, batch_size=inference_batch_size, shuffle=False, collate_fn=noop, **kwargs)
         inference(args, loader, model, trainTransform)
         return
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+    kwargs = {'num_workers': 2, 'pin_memory': False} if args.cuda else {}
     print("loading training set")
     trainSet = dset.LUNA16(root='luna16', images=ct_images, targets=ct_targets,
-                           mode="train", transform=trainTransform, 
+                           mode="train", transform=trainTransform,
                            class_balance=class_balance, split=target_split, seed=args.seed, masks=masks)
     trainLoader = DataLoader(trainSet, batch_size=batch_size, shuffle=True, **kwargs)
+
     print("loading test set")
-    testLoader = DataLoader(
-        dset.LUNA16(root='luna16', images=ct_images, targets=ct_targets,
-                    mode="test", transform=testTransform, seed=args.seed, masks=masks, split=target_split),
-        batch_size=batch_size, shuffle=False, **kwargs)
+    testSet = dset.LUNA16(root='luna16', images=ct_images, targets=ct_targets,
+                          mode="test", transform=testTransform,
+                          seed=args.seed, masks=masks, split=target_split)
+    testLoader = DataLoader(testSet, batch_size=batch_size, shuffle=False, **kwargs)
 
     target_mean = trainSet.target_mean()
     bg_weight = target_mean / (1. + target_mean)
@@ -272,7 +316,7 @@ def train_nll(args, epoch, model, trainLoader, optimizer, trainF, weights):
         target = target.view(target.numel())
         loss = F.nll_loss(output, target, weight=weights)
         dice_loss = bioloss.dice_error(output, target)
-        # make_graph.save('/tmp/t.dot', loss.creator); assert(False)
+        # make_graph.save(loss.creator); assert(False)
         loss.backward()
         optimizer.step()
         nProcessed += len(data)
@@ -328,7 +372,7 @@ def train_dice(args, epoch, model, trainLoader, optimizer, trainF, weights):
         optimizer.zero_grad()
         output = model(data)
         loss = bioloss.dice_loss(output, target)
-        # make_graph.save('/tmp/t.dot', loss.creator); assert(False)
+        # make_graph.save(loss.creator); assert(False)
         loss.backward()
         optimizer.step()
         nProcessed += len(data)
