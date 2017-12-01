@@ -11,23 +11,22 @@ from os import listdir
 from os.path import isfile, join
 import torchbiomed.datasets as dset
 
-# root_path = 'luna16/tmp-images'
-#x = 160
-#y = 128
-#z = 160
+root_path = '/home/liuxinglong01/1HDD/data/LUNA/original_lungs/'
+target_path = 'luna16_1mm/'
 
-root_path = 'orig_imgs/'
-target_path = 'working_imgs/'
+x = 320
+y = 320
+z = 256
+spacing = 1.0
 
+# root_path = 'orig_imgs/'
+# target_path = 'working_imgs/'
+#
 # x = 160
 # y = 160
 # z = 128
-# spacing = 2.0
+# spacing = 2
 
-x = 160
-y = 160
-z = 128
-spacing = 2
 
 def GetFileFromThisRootDir(dir,ext = None):
     allfiles = []
@@ -56,10 +55,7 @@ def getFileName(path):
     return files
 
 
-files = getFileName(root_path)
-
-
-
+# files = getFileName(root_path)
 
 # dset.luna16.build_nodule_offset_tables(files, 'luna16/tmp-nodule-tables',
 #                                        X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing)
@@ -78,7 +74,11 @@ files = getFileName(root_path)
 #                                   X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
 #                                  dst='luna16/normalized_lung_masks/')
 
+for subset in range(10):
+    dset.luna16.normalize_lung_CT(src="{0}{1}{2}/".format(root_path, "subset", subset),
+                                  X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
+                                  dst=target_path + "/normalized_ct_images/")
 
-dset.luna16.normalize_lung_CT(src=root_path,
-                              X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
-                              dst=target_path)
+dset.luna16.normalize_lung_mask(src="{0}{1}/".format(root_path, "seg-lungs-LUNA16-orig"),
+                                X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
+                                dst=target_path + '/normalized_lung_masks/')

@@ -18,3 +18,11 @@ working_imgs/
 *.pyc
 
 *.zip
+
+luna16_1mm/normalized_ct_images/
+
+luna16_1mm/normalized_lung_masks/
+
+luna16_2mm/normalized_ct_images/
+
+luna16_2mm/normalized_lung_masks/
