@@ -49,8 +49,8 @@ ct_images = "normalized_ct_images"
 # ct_targets = nodule_masks
 ct_targets = lung_masks
 
-target_split = [2, 2, 2]
-#target_split = [4, 4, 4]
+# target_split = [2, 2, 2]
+target_split = [4, 4, 4]
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -220,9 +220,9 @@ def main():
 
     # LUNA16 dataset isotropically scaled to 2.5mm^3
     # and then truncated or zero-padded to 160x128x160
-    normMu = [-510.154]
-    normSigma = [474.620]
-    normTransform = transforms.Normalize(normMu, normSigma)
+    # normMu = [-510.154]
+    # normSigma = [474.620]
+    # normTransform = transforms.Normalize(normMu, normSigma)
 
     trainTransform = transforms.Compose([
         transforms.ToTensor(),
@@ -255,13 +255,13 @@ def main():
 
     kwargs = {'num_workers': 2, 'pin_memory': False} if args.cuda else {}
     print("loading training set")
-    trainSet = dset.LUNA16(root='luna16', images=ct_images, targets=ct_targets,
+    trainSet = dset.LUNA16(root='luna16_1mm_partial', images=ct_images, targets=ct_targets,
                            mode="train", transform=trainTransform,
                            class_balance=class_balance, split=target_split, seed=args.seed, masks=masks)
     trainLoader = DataLoader(trainSet, batch_size=batch_size, shuffle=True, **kwargs)
 
     print("loading test set")
-    testSet = dset.LUNA16(root='luna16', images=ct_images, targets=ct_targets,
+    testSet = dset.LUNA16(root='luna16_1mm_partial', images=ct_images, targets=ct_targets,
                           mode="test", transform=testTransform,
                           seed=args.seed, masks=masks, split=target_split)
     testLoader = DataLoader(testSet, batch_size=batch_size, shuffle=False, **kwargs)
@@ -275,7 +275,7 @@ def main():
         class_weights = class_weights.cuda()
 
     if args.opt == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=1e-1,
+        optimizer = optim.SGD(model.parameters(), lr=1e-3,
                               momentum=0.99, weight_decay=weight_decay)
     elif args.opt == 'adam':
         optimizer = optim.Adam(model.parameters(), weight_decay=weight_decay)
@@ -297,7 +297,7 @@ def main():
                          'state_dict': model.state_dict(),
                          'best_prec1': best_prec1},
                         is_best, args.save, "vnet")
-        os.system('./plot.py {} {} &'.format(len(trainLoader), args.save))
+        # os.system('./plot.py {} {} &'.format(len(trainLoader), args.save))
 
     trainF.close()
     testF.close()

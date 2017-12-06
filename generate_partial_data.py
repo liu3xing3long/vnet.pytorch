@@ -11,7 +11,7 @@ import random
 import os
 
 source = "luna16_1mm"
-target = "luna16_1mm_partial"
+target = "luna16_1mm_partial_small"
 
 dir1 = "normalized_ct_images"
 dir2 = "normalized_lung_masks"
@@ -31,7 +31,7 @@ fp.close()
 
 
 nData = len(dat)
-nPartial = 200
+nPartial = 4
 
 partial_idx = random.sample(range(nData), nPartial)
 
