@@ -11,15 +11,12 @@ from os import listdir
 from os.path import isfile, join
 import torchbiomed.datasets as dset
 
-root_path = '/home/liuxinglong01/1HDD/data/LUNA'
-target_path = 'luna16_1mm_xyz'
+root_path = 'orig_imgs/'
+target_path = 'working_imgs_1mm/'
 
-# x = 320
-# y = 320
-# z = 256
 x = 320
 y = 320
-z = 320
+z = 256
 spacing = 1.0
 
 # root_path = 'orig_imgs/'
@@ -77,11 +74,6 @@ def getFileName(path):
 #                                   X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
 #                                  dst='luna16/normalized_lung_masks/')
 
-# for subset in range(10):
-#     dset.luna16.normalize_lung_CT(src="{0}/{1}/{2}/{3}/".format(root_path, "original_lungs", "subset", subset),
-#                                   X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
-#                                   dst=target_path + "/normalized_ct_images/")
-
-dset.luna16.normalize_lung_mask(src="{0}/{1}/".format(root_path, "seg-lungs-LUNA16-orig"),
-                                X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
-                                dst=target_path + '/normalized_lung_masks/')
+dset.luna16.normalize_lung_CT(src=root_path,
+                              X_MAX=x, Y_MAX=y, Z_MAX=z, vox_spacing=spacing,
+                              dst=target_path)

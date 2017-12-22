@@ -50,7 +50,10 @@ ct_images = "normalized_ct_images"
 ct_targets = lung_masks
 
 # target_split = [2, 2, 2]
-target_split = [4, 4, 4]
+# target_split = [4, 4, 4]
+
+# 64x64x64 mm3
+target_split = [4, 5, 5]
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -155,7 +158,7 @@ def main():
     parser.add_argument('--no-cuda', default=False, action='store_true')
     parser.add_argument('--save')
     parser.add_argument('--seed', type=int, default=1)
-    parser.add_argument('--opt', type=str, default='sgd',
+    parser.add_argument('--opt', type=str, default='rmsprop',
                         choices=('sgd', 'adam', 'rmsprop'))
     args = parser.parse_args()
     best_prec1 = 100.
@@ -255,13 +258,13 @@ def main():
 
     kwargs = {'num_workers': 2, 'pin_memory': False} if args.cuda else {}
     print("loading training set")
-    trainSet = dset.LUNA16(root='luna16_1mm_partial', images=ct_images, targets=ct_targets,
+    trainSet = dset.LUNA16(root='luna16_1mm', images=ct_images, targets=ct_targets,
                            mode="train", transform=trainTransform,
                            class_balance=class_balance, split=target_split, seed=args.seed, masks=masks)
     trainLoader = DataLoader(trainSet, batch_size=batch_size, shuffle=True, **kwargs)
 
     print("loading test set")
-    testSet = dset.LUNA16(root='luna16_1mm_partial', images=ct_images, targets=ct_targets,
+    testSet = dset.LUNA16(root='luna16_1mm', images=ct_images, targets=ct_targets,
                           mode="test", transform=testTransform,
                           seed=args.seed, masks=masks, split=target_split)
     testLoader = DataLoader(testSet, batch_size=batch_size, shuffle=False, **kwargs)
@@ -275,7 +278,7 @@ def main():
         class_weights = class_weights.cuda()
 
     if args.opt == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=1e-3,
+        optimizer = optim.SGD(model.parameters(), lr=1e-1,
                               momentum=0.99, weight_decay=weight_decay)
     elif args.opt == 'adam':
         optimizer = optim.Adam(model.parameters(), weight_decay=weight_decay)
