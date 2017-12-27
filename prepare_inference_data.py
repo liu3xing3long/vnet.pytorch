@@ -12,11 +12,11 @@ from os.path import isfile, join
 import torchbiomed.datasets as dset
 
 root_path = 'orig_imgs/'
-target_path = 'working_imgs_1mm/'
+target_path = 'working_imgs_1mm_xyz/'
 
 x = 320
 y = 320
-z = 256
+z = 320
 spacing = 1.0
 
 # root_path = 'orig_imgs/'

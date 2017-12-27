@@ -1,40 +1,26 @@
 #!/usr/bin/env python3
 
-from local import *
 import time
 import argparse
 import torch
 
 import numpy as np
 import torch.nn as nn
-import torch.nn.init as init
 import torch.optim as optim
-
 import torch.nn.functional as F
 from torch.autograd import Variable
-
 import torchvision.transforms as transforms
-
 from torch.utils.data import DataLoader
-
 import torchbiomed.datasets as dset
-import torchbiomed.transforms as biotransforms
 import torchbiomed.loss as bioloss
 import torchbiomed.utils as utils
-
 import os
-import sys
-import math
-
 import shutil
 
-# import setproctitle
-
 import vnet
-import make_graph
 from functools import reduce
 import operator
-
+import re
 
 #nodule_masks = "normalized_mask_5_0"
 #lung_masks = "normalized_seg_lungs_5_0"
@@ -50,10 +36,13 @@ ct_images = "normalized_ct_images"
 ct_targets = lung_masks
 
 # target_split = [2, 2, 2]
-# target_split = [4, 4, 4]
+target_split = [4, 4, 4]
 
 # 64x64x64 mm3
-target_split = [4, 5, 5]
+# target_split = [4, 5, 5]
+# target_split = [5, 5, 5]
+data_set_path = "luna16_1mm_xyz"
+
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -167,7 +156,10 @@ def main():
     if not args.cuda:
         print 'no cuda support!\n'
 
-    args.save = args.save or 'work/vnet.base.{}'.format(datestr())
+    tar_split_str = str(target_split)
+    re.sub('\s', '', tar_split_str)
+
+    args.save = args.save or 'work/{0}_{1}_{2}'.format(data_set_path, tar_split_str, datestr())
     nll = True
     if args.dice:
         nll = False
@@ -223,17 +215,17 @@ def main():
 
     # LUNA16 dataset isotropically scaled to 2.5mm^3
     # and then truncated or zero-padded to 160x128x160
-    # normMu = [-510.154]
-    # normSigma = [474.620]
-    # normTransform = transforms.Normalize(normMu, normSigma)
+    normMu = [-510.154]
+    normSigma = [474.620]
+    normTransform = transforms.Normalize(normMu, normSigma)
 
     trainTransform = transforms.Compose([
         transforms.ToTensor(),
-        # normTransform
+        normTransform
     ])
     testTransform = transforms.Compose([
         transforms.ToTensor(),
-        # normTransform
+        normTransform
     ])
     if ct_targets == nodule_masks:
         masks = lung_masks
@@ -258,13 +250,13 @@ def main():
 
     kwargs = {'num_workers': 2, 'pin_memory': False} if args.cuda else {}
     print("loading training set")
-    trainSet = dset.LUNA16(root='luna16_1mm', images=ct_images, targets=ct_targets,
+    trainSet = dset.LUNA16(root=data_set_path, images=ct_images, targets=ct_targets,
                            mode="train", transform=trainTransform,
                            class_balance=class_balance, split=target_split, seed=args.seed, masks=masks)
     trainLoader = DataLoader(trainSet, batch_size=batch_size, shuffle=True, **kwargs)
 
     print("loading test set")
-    testSet = dset.LUNA16(root='luna16_1mm', images=ct_images, targets=ct_targets,
+    testSet = dset.LUNA16(root=data_set_path, images=ct_images, targets=ct_targets,
                           mode="test", transform=testTransform,
                           seed=args.seed, masks=masks, split=target_split)
     testLoader = DataLoader(testSet, batch_size=batch_size, shuffle=False, **kwargs)
