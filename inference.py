@@ -40,11 +40,12 @@ ct_images = "normalized_ct_images"
 ct_targets = lung_masks
 
 # target_split = [2, 2, 2]
-target_split = [4, 4, 4]
+# target_split = [4, 4, 4]
 
 # 64x64x64 mm3
-# target_split = [4, 5, 5]
+target_split = [4, 5, 5]
 # target_split = [5, 5, 5]
+# target_split = [5, 4, 4]
 
 
 def inference(args, loader, model, transforms):
@@ -119,6 +120,8 @@ def inference_piecebypiece(args, loader, model, transforms):
         image_size = shape[-3:]
 
         results = []
+        first_output = True
+        batch_output = []
         for batch in range(batches):
             print "processing batch {0}".format(batch)
 
@@ -138,8 +141,16 @@ def inference_piecebypiece(args, loader, model, transforms):
 
             output = output.view(shape[1:])
             output = output.cpu()
-            results.append(output)
+            output = output.unsqueeze(0)
+            if first_output:
+                batch_output = output
+                first_output = False
+            else:
+                batch_output = torch.cat([batch_output, output])
 
+            # print batch_output.data.shape
+            # results.append(output)
+        results = batch_output
         # output = output.view(shape)
         # output = output.cpu()
         # # merge subvolumes and save
@@ -244,13 +255,13 @@ def main():
 
     # LUNA16 dataset isotropically scaled to 2.5mm^3
     # and then truncated or zero-padded to 160x128x160
-    # normMu = [-510.154]
-    # normSigma = [474.620]
-    # normTransform = transforms.Normalize(normMu, normSigma)
+    normMu = [-510.154]
+    normSigma = [474.620]
+    normTransform = transforms.Normalize(normMu, normSigma)
 
     trainTransform = transforms.Compose([
         transforms.ToTensor(),
-        # normTransform
+        normTransform
     ])
 
     if args.inference != '':

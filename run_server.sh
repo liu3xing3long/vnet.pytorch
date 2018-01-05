@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-python train.py --batchSz 12 --ngpu 4
+python train.py --batchSz 6 --ngpu 4
 
