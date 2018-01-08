@@ -40,10 +40,10 @@ ct_images = "normalized_ct_images"
 ct_targets = lung_masks
 
 # target_split = [2, 2, 2]
-# target_split = [4, 4, 4]
+target_split = [4, 4, 4]
 
 # 64x64x64 mm3
-target_split = [4, 5, 5]
+# target_split = [4, 5, 5]
 # target_split = [5, 5, 5]
 # target_split = [5, 4, 4]
 
@@ -196,6 +196,7 @@ def main():
     parser.add_argument('--batchSz', type=int, default=1)
     parser.add_argument('--dice', default=False, action='store_true')
     parser.add_argument('--ngpu', type=int, default=1)
+    parser.add_argument('--infertype', type=int, default=0)
     parser.add_argument('--nEpochs', type=int, default=300)
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                         help='manual epoch number (useful on restarts)')
@@ -277,8 +278,12 @@ def main():
         print "inferencing root: {0}, img:{1}".format(root, images)
         dataset = dset.LUNA16(root=root, images=images, transform=trainTransform, split=target_split, mode="infer")
         loader = DataLoader(dataset, batch_size=inference_batch_size, shuffle=False, collate_fn=noop, **kwargs)
-        # inference(args, loader, model, trainTransform)
-        inference_piecebypiece(args, loader, model, trainTransform)
+        if args.infertype == 0:
+            inference(args, loader, model, trainTransform)
+        elif args.infertype == 1:
+            inference_piecebypiece(args, loader, model, trainTransform)
+        else:
+            print "inference type wrong"
         return
 
 
