@@ -56,11 +56,13 @@ def inference(args, loader, model, transforms):
     nvols = reduce(operator.mul, target_split, 1)
     # assume single GPU / batch size 1
     for data in loader:
+        # we infere EXACTLY one data per-gpu
         data, series, origin, spacing = data[0]
         shape = data.size()
+        print "data shape {0}".format(shape)
         # convert names to batch tensor
         if args.cuda:
-            data.pin_memory()
+            # data.pin_memory()
             data = data.cuda()
         data = Variable(data, volatile=True)
         try:
@@ -69,6 +71,7 @@ def inference(args, loader, model, transforms):
             print e
             return
 
+        print "output data shape {0}".format(output.size())
         _, output = output.max(1)
         output = output.view(shape)
         output = output.cpu()
@@ -122,16 +125,20 @@ def inference_piecebypiece(args, loader, model, transforms):
         results = []
         first_output = True
         batch_output = []
+        batch_interval = 16
         for batch in range(batches):
             print "processing batch {0}".format(batch)
 
-            data = batch_data[batch, ...]
+            if not batch % batch_interval == 0:
+                continue
+
+            data = batch_data[batch:batch + batch_interval, ...]
             # convert names to batch tensor
             if args.cuda:
                 # data.pin_memory()
                 data = data.cuda()
             data = Variable(data, volatile=True)
-            data = data.unsqueeze(0)
+            # data = data.unsqueeze(0)
             try:
                 output = model(data)
             except Exception, e:
@@ -139,26 +146,21 @@ def inference_piecebypiece(args, loader, model, transforms):
                 return
             _, output = output.max(1)
 
-            output = output.view(shape[1:])
+            batch_shape = [batch_interval] + [dim for dim in shape[1:]]
+            output = output.view(batch_shape)
             output = output.cpu()
-            output = output.unsqueeze(0)
+            # output = output.unsqueeze(0)
+
             if first_output:
                 batch_output = output
                 first_output = False
             else:
                 batch_output = torch.cat([batch_output, output])
 
-            # print batch_output.data.shape
-            # results.append(output)
-        results = batch_output
-        # output = output.view(shape)
-        # output = output.cpu()
-        # # merge subvolumes and save
-        # results = output.chunk(nvols)
+
+        print "batch_output size {0}".format(batch_output.size())
+        results = batch_output.chunk(nvols)
         results = map(lambda var: torch.squeeze(var.data).numpy().astype(np.int16), results)
-        # results = map(lambda var: var.transpose([1, 2, 0]), results)
-        # image_size = shape[-3:]
-        # transform torch.ToTensor altered results back
         image_size = [image_size[1], image_size[2], image_size[0]]
         new_results = []
         for img in results:
@@ -167,21 +169,6 @@ def inference_piecebypiece(args, loader, model, transforms):
         results = new_results
         volume = utils.merge_image(results, target_split)
 
-        # volume = np.zeros([128, 128, 128])
-        # z_p, y_p, x_p = 2, 2, 2
-        # z_incr, y_incr, x_incr = 64, 64, 64
-        # idx = 0
-        # for zi in range(z_p):
-        #     zstart = zi * z_incr
-        #     zend = zstart + z_incr
-        #     for yi in range(y_p):
-        #         ystart = yi * y_incr
-        #         yend = ystart + y_incr
-        #         for xi in range(x_p):
-        #             xstart = xi * x_incr
-        #             xend = xstart + x_incr
-        #             volume[zstart:zend, ystart:yend, xstart:xend] = results[idx]
-        #             idx +=1
         print("save {}".format(series))
         utils.save_updated_image(volume, os.path.join(dst, series + ".mhd"), origin, spacing)
 
@@ -272,7 +259,10 @@ def main():
         kwargs = {'num_workers': 1} if args.cuda else {}
         src = args.inference
         dst = args.save
-        inference_batch_size = args.ngpu
+
+        # we infere EXACTLY one data per-gpu!
+        # inference_batch_size = args.ngpu
+        inference_batch_size = 1
         root = os.path.dirname(src)
         images = os.path.basename(src)
         print "inferencing root: {0}, img:{1}".format(root, images)
