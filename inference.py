@@ -125,7 +125,7 @@ def inference_piecebypiece(args, loader, model, transforms):
         results = []
         first_output = True
         batch_output = []
-        batch_interval = 16
+        batch_interval = 1
         for batch in range(batches):
             print "processing batch {0}".format(batch)
 
