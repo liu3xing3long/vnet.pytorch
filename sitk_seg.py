@@ -30,6 +30,10 @@ MIN_LUNG_VOX = 10000.0
 MIN_BODY_VOX = 100000.0
 MIN_BED_VOX = 5000.0
 
+THRESHOLD = (-500, 2000)
+
+
+
 def _notice():
     logging.debug("*" * 60)
 
@@ -46,7 +50,7 @@ def initLogging(logFilename):
         filemode = 'w')
     # define a Handler which writes INFO messages or higher to the sys.stderr
     console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
+    console.setLevel(logging.DEBUG)
     # set a format which is simpler for console use
     formatter = logging.Formatter('LINE %(lineno)-4d : %(levelname)-8s %(message)s')
     # tell the handler to use this format
