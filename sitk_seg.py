@@ -9,6 +9,7 @@ Created on Tue Jan 23 17:52:22 2018
 import os
 import sys
 import math
+import time
 import logging
 import SimpleITK as sitk
 import numpy as np
@@ -29,16 +30,30 @@ BED_VOX_VAL = 128
 MIN_LUNG_VOX = 10000.0
 MIN_BODY_VOX = 100000.0
 MIN_BED_VOX = 5000.0
-
 THRESHOLD = (-500, 2000)
 
+##################################
+### debug vars
+total_debug_time = 0.0
+
+###################################
+### global medical image gpu filter
+def check_medgpu():
+    try:
+        medImageFilter = sitk.MedImageGPUFilter()
+        _notice()
+        logging.debug("setting med image filter to gpu")
+    except:
+        logging.warning("no GPU impl for med image filter found, revert to CPU version")
+        medImageFilter = sitk
+    return medImageFilter
 
 
 def _notice():
     logging.debug("*" * 60)
 
 
-def initLogging(logFilename):
+def init_logging(logFilename):
     """
     Init for logging
     """
@@ -59,18 +74,26 @@ def initLogging(logFilename):
 
 
 def main_fun(data_name):
+    global total_debug_time
+
+    medImageFilter = check_medgpu()
+
     img = sitk.ReadImage(os.path.join(data_path, data_name))
     img_w, img_h, img_d = img.GetSize()
     img_phy_w, img_phy_h, img_phy_d = np.array(img.GetSpacing()) * np.array(img.GetSize())
     img_center_x, img_center_y, img_center_z =  np.array(img.GetOrigin()) + \
                                                  np.array([img_phy_w, img_phy_h, img_phy_d])/2.0
+    
+    ###########################
+    # debugging time
+    start_time = time.time()
+    ###########################
 
     thr_img = sitk.BinaryThreshold(img, -500, 2000)
-
     # thr_img = sitk.BinaryFillhole(thr_img)
 
-    dilate_img = sitk.BinaryDilate(thr_img)
-    start_img = sitk.BinaryErode(dilate_img)
+    dilate_img = medImageFilter.BinaryDilate(thr_img)
+    start_img = medImageFilter.BinaryErode(dilate_img)
     
     ###########################
     # sitk.Show(start_img)
@@ -101,13 +124,13 @@ def main_fun(data_name):
             region_h = abs(bbox[3] - bbox[0]) 
             center_x, center_y, center_z = shapefilter.GetCentroid(l)
 
-            logging.debug("{},({},{},{}), ({},{},{})".\
-                format(l, region_d, region_w, region_h, center_x, center_y, center_z))
+            logging.debug("{},{}, ({},{},{}), ({},{},{})".\
+                format(l, shapefilter.GetPhysicalSize(l), region_d, region_w, region_h, center_x, center_y, center_z))
 
             # NOTE, we do NOT setence image depth here! since lung sometimes would 
             # occupy the whole image alongside the depth direction
             # if  region_d < 0.9 * img_d and \
-            # 大小小鱼90%原图大小，且中心在原图中心1/4以内
+            # 大小小于90%原图大小，且中心在原图中心1/4以内
             if  region_w < 0.9 * img_w and \
                 region_h < 0.9 * img_h and \
                 abs(center_x - img_center_x) < img_phy_w / 4 and \
@@ -140,11 +163,10 @@ def main_fun(data_name):
     
     ######################
     # sitk.Show(erode_img)
+    sitk.WriteImage(erode_img, os.path.join(data_output_path, data_name + "_whole.mhd"), True)
     ######################
+
     ##########################################################################
-    
-    processed_img = erode_img
-    
     lmap = sitk.BinaryImageToLabelMap(erode_img)
     limg = sitk.LabelMapToLabel(lmap)
     shapefilter = sitk.LabelShapeStatisticsImageFilter()
@@ -160,7 +182,7 @@ def main_fun(data_name):
         curr_iter = curr_iter + 1
         logging.debug("curr_iter {}, labels {}".format(curr_iter, len(labels))) 
         
-        erode_img = sitk.BinaryErode(erode_img)
+        erode_img = medImageFilter.BinaryErode(erode_img)
         lmap = sitk.BinaryImageToLabelMap(erode_img)
         limg = sitk.LabelMapToLabel(lmap)
         shapefilter = sitk.LabelShapeStatisticsImageFilter()
@@ -171,12 +193,12 @@ def main_fun(data_name):
             logging.debug("reduce labels to 1 failed")
             break
     
-    logging.debug("recovering shape")
-    
-    dilate_img = sitk.BinaryDilate(erode_img)   
+    logging.debug("recovering shape iter {0}".format(1))
+    dilate_img = medImageFilter.BinaryDilate(erode_img)   
         
-    for i in range(curr_iter - 1):
-        dilate_img = sitk.BinaryDilate(dilate_img)
+    for i in range(1, curr_iter):
+        logging.debug("recovering shape iter {0}".format(i))
+        dilate_img = medImageFilter.BinaryDilate(dilate_img)
 
     # dilate_img = dilate_img - lung_img
     ##########################################################################
@@ -231,7 +253,7 @@ def main_fun(data_name):
     ###########################################################################
     no_body_no_lung_img = start_img - body_img - lung_img
 
-    dil_no_body_no_lung_img = sitk.BinaryDilate(no_body_no_lung_img)
+    dil_no_body_no_lung_img = medImageFilter.BinaryDilate(no_body_no_lung_img)
     lmap = sitk.BinaryImageToLabelMap(dil_no_body_no_lung_img)
     limg = sitk.LabelMapToLabel(lmap)
 
@@ -274,13 +296,21 @@ def main_fun(data_name):
     bed_img.CopyInformation(dilate_img)
 
     # further post-processing
-    bed_img = sitk.BinaryErode(bed_img)
+    bed_img = medImageFilter.BinaryErode(bed_img)
     bed_img_array = sitk.GetArrayFromImage(bed_img)
     bed_indicess = np.where(bed_img_array == 1)   
 
     ######################
     # sitk.Show(bed_img)
     ######################
+
+    ###########################
+    # debugging time
+    end_time = time.time()
+    this_time = end_time - start_time
+    total_debug_time = total_debug_time + this_time
+    logging.debug( "data {0}, process time {1}".format(data_name, this_time) )
+    ###########################
 
     ###########################################################################
     # show
@@ -300,6 +330,8 @@ def main_fun(data_name):
 def process_all(path):
     files = glob(os.path.join(data_path, "*.mhd"))
     
+    global total_debug_time
+
     for file in files:
         _notice()
         _notice()
@@ -308,6 +340,7 @@ def process_all(path):
         filepath, filename = os.path.split(file)
         main_fun(filename)  
 
+    logging.debug( "total time {0}, average time {1}".format(total_debug_time, total_debug_time / len(files)) )
 
 def process_single(filename):
     _notice()
@@ -318,7 +351,7 @@ def process_single(filename):
 
 
 if __name__ == "__main__":
-    initLogging("./sitk_seg.log")
+    init_logging("./sitk_seg.log")
 
     if len(sys.argv) >= 2:
         filename = sys.argv[1]
