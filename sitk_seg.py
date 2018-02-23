@@ -15,15 +15,16 @@ import SimpleITK as sitk
 import numpy as np
 from glob import glob
 
-data_path = "/home/liuxinglong01/1HDD/work/vnet.pytorch/orig_imgs/train_subset00"
-data_output_path = "/home/liuxinglong01/1HDD/work/vnet.pytorch/orig_imgs/fuzzy_seg"
+# data_path = "/home/liuxinglong/work/vnet.pytorch/orig_imgs/train_subset00"
+# data_path = "/home/liuxinglong/data/TIANCHI/all/train_subset01"
+data_output_path = "/home/liuxinglong/work/vnet.pytorch/orig_imgs/fuzzy_seg"
 # data_name = "LKDS-00001.mhd"
 
 ###################################
 ## labeling constants
 LUNG_VOX_VAL = 64
-BODY_VOX_VAL = 192
-BED_VOX_VAL = 128
+BODY_VOX_VAL = 128
+BED_VOX_VAL = 192
 
 ###################################
 ### variables
@@ -73,7 +74,7 @@ def init_logging(logFilename):
     logging.getLogger('').addHandler(console)
 
 
-def main_fun(data_name):
+def main_fun(data_path, data_name):
     global total_debug_time
 
     medImageFilter = check_medgpu()
@@ -164,7 +165,7 @@ def main_fun(data_name):
     ######################
     # sitk.Show(erode_img)
     sitk.WriteImage(erode_img, os.path.join(data_output_path, data_name + "_whole.mhd"), True)
-    ######################
+    ######################  
 
     ##########################################################################
     lmap = sitk.BinaryImageToLabelMap(erode_img)
@@ -325,11 +326,21 @@ def main_fun(data_name):
     write_path = os.path.join(data_output_path, data_name + "_seg.mhd")
     logging.debug("writing to {}".format(write_path))
     sitk.WriteImage(newimg, write_path, True)
-    
+        
+    ###########################################################################
+    # extract the center slice for better visualization
+    whole_slice = newimg[:,:,img_d/2]
+    whole_slice = sitk.Cast(whole_slice, sitk.sitkUInt8)    
+    sitk.WriteImage(whole_slice, os.path.join(data_output_path, data_name + "_slice.png"))
 
-def process_all(path):
+
+def process_all(data_path):
     files = glob(os.path.join(data_path, "*.mhd"))
     
+    if len(files) == 0:
+        logging.debug("folder {} does not contain any mhd files".format(data_path))
+        return
+
     global total_debug_time
 
     for file in files:
@@ -338,16 +349,17 @@ def process_all(path):
         
         logging.debug("processing {}".format(file))
         filepath, filename = os.path.split(file)
-        main_fun(filename)  
+        main_fun(data_path, filename)  
 
     logging.debug( "total time {0}, average time {1}".format(total_debug_time, total_debug_time / len(files)) )
 
-def process_single(filename):
+
+def process_single(path, filename):
     _notice()
     _notice()
     
-    logging.debug("processing {}".format(filename))
-    main_fun(filename) 
+    logging.debug("processing {}, {}".format(path, filename))
+    main_fun(path, filename) 
 
 
 if __name__ == "__main__":
@@ -355,6 +367,22 @@ if __name__ == "__main__":
 
     if len(sys.argv) >= 2:
         filename = sys.argv[1]
-        process_single(filename + ".mhd")
+        data_path = "/home/liuxinglong/work/vnet.pytorch/orig_imgs/train_subset00"
+        process_single(data_path, filename + ".mhd")
     else:
-        process_all("")
+        data_paths = [
+                    #  "/home/liuxinglong/data/TIANCHI/all/train_subset00",
+                    #  "/home/liuxinglong/data/TIANCHI/all/train_subset01",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset02",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset03",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset04",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset05",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset06",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset07",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset08",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset09",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset10"
+                     ]
+        
+        for path in data_paths:
+            process_all(path)
