@@ -130,9 +130,9 @@ def main_fun(data_path, data_name):
             # at the center of the image
             # size can not occupy the whole image
             # bbox = [idx_x, idx_y, idx_z, sz_x, sz_y, sz_z]
-            region_d = bbox[2] 
-            region_h = bbox[1] 
-            region_w = bbox[0] 
+            region_d = bbox[5] 
+            region_h = bbox[4] 
+            region_w = bbox[3] 
             center_x, center_y, center_z = shapefilter.GetCentroid(l)
 
             logging.debug("{},{}, ({},{},{}), ({},{},{})".\
@@ -150,10 +150,9 @@ def main_fun(data_path, data_name):
                    logging.debug("adding {} to lung labels".format(l))
                    lung_labels.append(l)
 
-    return
     ###########################
     llfiltered = sitk.GetArrayFromImage(limg)
-    # llmask = np.zeros(llfiltered.shape)
+    llmask = np.zeros(llfiltered.shape)
     op = np.zeros(llfiltered.shape)
     if len(lung_labels) >= 2:
         op = np.logical_or(llfiltered == lung_labels[0], llfiltered == lung_labels[1])
