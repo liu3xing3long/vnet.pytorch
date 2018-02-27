@@ -31,7 +31,16 @@ BED_VOX_VAL = 192
 MIN_LUNG_VOX = 10000.0
 MIN_BODY_VOX = 100000.0
 MIN_BED_VOX = 5000.0
-THRESHOLD = (-500, 2000)
+THRESHOLD = [-500, 2000]
+
+###################################
+LUNG_W_PER = 0.95
+LUNG_H_PER = 0.95
+LUNG_CENTER_MOV = 0.25
+
+###################################
+BED_FLATNESS = 2.0
+BED_D_PER = 0.25
 
 ##################################
 ### debug vars
@@ -90,7 +99,7 @@ def main_fun(data_path, data_name):
     start_time = time.time()
     ###########################
 
-    thr_img = sitk.BinaryThreshold(img, -500, 2000)
+    thr_img = sitk.BinaryThreshold(img, THRESHOLD[0], THRESHOLD[1])
     # thr_img = sitk.BinaryFillhole(thr_img)
 
     dilate_img = medImageFilter.BinaryDilate(thr_img)
@@ -120,9 +129,10 @@ def main_fun(data_path, data_name):
             bbox = shapefilter.GetBoundingBox(l)
             # at the center of the image
             # size can not occupy the whole image
-            region_d = abs(bbox[5] - bbox[2]) 
-            region_w = abs(bbox[4] - bbox[1]) 
-            region_h = abs(bbox[3] - bbox[0]) 
+            # bbox = [idx_x, idx_y, idx_z, sz_x, sz_y, sz_z]
+            region_d = bbox[2] 
+            region_h = bbox[1] 
+            region_w = bbox[0] 
             center_x, center_y, center_z = shapefilter.GetCentroid(l)
 
             logging.debug("{},{}, ({},{},{}), ({},{},{})".\
@@ -132,17 +142,18 @@ def main_fun(data_path, data_name):
             # occupy the whole image alongside the depth direction
             # if  region_d < 0.9 * img_d and \
             # 大小小于90%原图大小，且中心在原图中心1/4以内
-            if  region_w < 0.9 * img_w and \
-                region_h < 0.9 * img_h and \
-                abs(center_x - img_center_x) < img_phy_w / 4 and \
-                abs(center_y - img_center_y) < img_phy_h / 4 and \
-                abs(center_z - img_center_z) < img_phy_d / 4:
+            if  region_w < LUNG_W_PER * img_w and \
+                region_h < LUNG_H_PER * img_h and \
+                abs(center_x - img_center_x) < img_phy_w * LUNG_CENTER_MOV and \
+                abs(center_y - img_center_y) < img_phy_h * LUNG_CENTER_MOV and \
+                abs(center_z - img_center_z) < img_phy_d * LUNG_CENTER_MOV:
                    logging.debug("adding {} to lung labels".format(l))
                    lung_labels.append(l)
 
+    return
     ###########################
     llfiltered = sitk.GetArrayFromImage(limg)
-    llmask = np.zeros(llfiltered.shape)
+    # llmask = np.zeros(llfiltered.shape)
     op = np.zeros(llfiltered.shape)
     if len(lung_labels) >= 2:
         op = np.logical_or(llfiltered == lung_labels[0], llfiltered == lung_labels[1])
@@ -198,7 +209,7 @@ def main_fun(data_path, data_name):
     dilate_img = medImageFilter.BinaryDilate(erode_img)   
         
     for i in range(1, curr_iter):
-        logging.debug("recovering shape iter {0}".format(i))
+        logging.debug("recovering shape iter {0}".format(i + 1))
         dilate_img = medImageFilter.BinaryDilate(dilate_img)
 
     # dilate_img = dilate_img - lung_img
@@ -271,8 +282,8 @@ def main_fun(data_path, data_name):
             logging.debug("{},{},{}".format(l, shapefilter.GetPhysicalSize(l), shapefilter.GetFlatness(l)))
             center_x, center_y, center_z = shapefilter.GetCentroid(l)
             # 图像上下1/4区间
-            if shapefilter.GetFlatness(l) > 2.0 and \
-                abs(center_y - img_center_y) > img_phy_h / 4:
+            if shapefilter.GetFlatness(l) > BED_FLATNESS and \
+                abs(center_y - img_center_y) > img_phy_h * BED_D_PER:
                 logging.debug("adding {} to bed".format(l))
                 bed_labels.append(l)
                      
@@ -286,7 +297,7 @@ def main_fun(data_path, data_name):
     elif len(bed_labels)== 1:
         op = (llfiltered == bed_labels[0])
     else:
-        logging.debug("bed not detected!")
+        logging.debug("bed label not found!")
 
     bed_indicess = np.where(op == True)
     # llmask[bed_indicess] = BED_VOX_VAL    
@@ -365,14 +376,18 @@ def process_single(path, filename):
 if __name__ == "__main__":
     init_logging("./sitk_seg.log")
 
-    if len(sys.argv) >= 2:
+    if len(sys.argv) == 2:
         filename = sys.argv[1]
         data_path = "/home/liuxinglong/work/vnet.pytorch/orig_imgs/train_subset00"
         process_single(data_path, filename + ".mhd")
+    elif len(sys.argv) == 3:
+        path = sys.argv[1]
+        filename = sys.argv[2]
+        process_single(path, filename + ".mhd")
     else:
         data_paths = [
-                    #  "/home/liuxinglong/data/TIANCHI/all/train_subset00",
-                    #  "/home/liuxinglong/data/TIANCHI/all/train_subset01",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset00",
+                     "/home/liuxinglong/data/TIANCHI/all/train_subset01",
                      "/home/liuxinglong/data/TIANCHI/all/train_subset02",
                      "/home/liuxinglong/data/TIANCHI/all/train_subset03",
                      "/home/liuxinglong/data/TIANCHI/all/train_subset04",
