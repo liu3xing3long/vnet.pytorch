@@ -6,6 +6,7 @@ import torch
 
 import numpy as np
 import torch.nn as nn
+from torch.nn import DataParallel
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -35,13 +36,14 @@ ct_images = "normalized_ct_images"
 # ct_targets = nodule_masks
 ct_targets = lung_masks
 
-# target_split = [2, 2, 2]
-target_split = [4, 4, 4]
+target_split = [4, 5, 5]
+# target_split = [4, 4, 4]
 
 # 64x64x64 mm3
 # target_split = [4, 5, 5]
 # target_split = [5, 5, 5]
-data_set_path = "luna16_1mm_xyz"
+# data_set_path = "luna16_1mm_xyz"
+data_set_path = "luna16_2mm"
 
 
 def weights_init(m):
@@ -177,7 +179,7 @@ def main():
     if args.cuda:
         batch_size = args.ngpu*args.batchSz
         gpu_ids = range(args.ngpu)
-        model = nn.parallel.DataParallel(model, device_ids=gpu_ids)
+        model = DataParallel(model, device_ids=gpu_ids)
     else:
         batch_size = args.batchSz
 
@@ -248,7 +250,7 @@ def main():
         inference(args, loader, model, trainTransform)
         return
 
-    kwargs = {'num_workers': 2, 'pin_memory': False} if args.cuda else {}
+    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
     print("loading training set")
     trainSet = dset.LUNA16(root=data_set_path, images=ct_images, targets=ct_targets,
                            mode="train", transform=trainTransform,
@@ -270,7 +272,7 @@ def main():
         class_weights = class_weights.cuda()
 
     if args.opt == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=1e-1,
+        optimizer = optim.SGD(model.parameters(), lr=1e-3,
                               momentum=0.99, weight_decay=weight_decay)
     elif args.opt == 'adam':
         optimizer = optim.Adam(model.parameters(), weight_decay=weight_decay)
@@ -280,7 +282,7 @@ def main():
     trainF = open(os.path.join(args.save, 'train.csv'), 'w')
     testF = open(os.path.join(args.save, 'test.csv'), 'w')
     err_best = 100.
-    for epoch in range(1, args.nEpochs + 1):
+    for epoch in range(args.start_epoch + 1, args.nEpochs + 1):
         adjust_opt(args.opt, optimizer, epoch)
         train(args, epoch, model, trainLoader, optimizer, trainF, class_weights)
         err = test(args, epoch, model, testLoader, optimizer, testF, class_weights)

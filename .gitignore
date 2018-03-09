@@ -42,3 +42,5 @@ working_imgs_1mm_xyz/
 working_imgs_1mm_xyz_smooth/
 
 *.log
+
+working_imgs_2mm/

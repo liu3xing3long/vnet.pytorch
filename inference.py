@@ -6,6 +6,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.init as init
 import torch.optim as optim
+from torch.nn import DataParallel
 
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -28,7 +29,7 @@ import shutil
 # import setproctitle
 
 import vnet
-import make_graph
+# import make_graph
 from functools import reduce
 import operator
 
@@ -40,10 +41,11 @@ ct_images = "normalized_ct_images"
 ct_targets = lung_masks
 
 # target_split = [2, 2, 2]
-target_split = [4, 4, 4]
+# target_split = [4, 4, 4]
 
 # 64x64x64 mm3
 # target_split = [4, 5, 5]
+target_split = [5, 6, 6]
 # target_split = [5, 5, 5]
 # target_split = [5, 4, 4]
 
@@ -218,7 +220,7 @@ def main():
 
     if args.cuda:
         gpu_ids = range(args.ngpu)
-        model = nn.parallel.DataParallel(model, device_ids=gpu_ids)
+        model = DataParallel(model, device_ids=gpu_ids)
 
     if args.resume:
         if os.path.isfile(args.resume):

@@ -12,13 +12,13 @@ from os.path import isfile, join
 import torchbiomed.datasets as dset
 
 ####################################################
-root_path = 'orig_imgs/'
-target_path = 'working_imgs_1mm_xyz/'
+# root_path = 'orig_imgs/'
+# target_path = 'working_imgs_1mm_xyz/'
 
-x = 320
-y = 320
-z = 320
-spacing = 1.0
+# x = 320
+# y = 320
+# z = 320
+# spacing = 1.0
 
 
 ####################################################
@@ -32,13 +32,13 @@ spacing = 1.0
 
 
 ####################################################
-# root_path = 'orig_imgs/'
-# target_path = 'working_imgs/'
-#
-# x = 160
-# y = 160
-# z = 128
-# spacing = 2
+root_path = 'orig_imgs/train_subset00/'
+target_path = 'working_imgs_2mm/'
+
+x = 192
+y = 192
+z = 160
+spacing = 2
 
 
 ####################################################
