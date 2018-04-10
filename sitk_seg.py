@@ -28,14 +28,14 @@ BED_VOX_VAL = 192
 
 ###################################
 ### variables
-MIN_LUNG_VOX = 10000.0
-MIN_BODY_VOX = 100000.0
-MIN_BED_VOX = 5000.0
+MIN_LUNG_PHY_VOX = 10000.0
+MIN_BODY_PHY_VOX = 100000.0
+MIN_BED_PHY_VOX = 5000.0
 THRESHOLD = [-500, 2000]
 
 ###################################
-LUNG_W_PER = 0.95
-LUNG_H_PER = 0.95
+LUNG_W_PER = 0.95 # !! this should be discussed
+LUNG_H_PER = 0.95 # !! this should be discussed
 LUNG_CENTER_MOV = 0.25
 
 ###################################
@@ -125,7 +125,7 @@ def main_fun(data_path, data_name):
                                                 img_phy_d, img_phy_w, img_phy_h))
 
     for l in labels:
-        if shapefilter.GetPhysicalSize(l) > MIN_LUNG_VOX:
+        if shapefilter.GetPhysicalSize(l) > MIN_LUNG_PHY_VOX:
             bbox = shapefilter.GetBoundingBox(l)
             # at the center of the image
             # size can not occupy the whole image
@@ -227,7 +227,7 @@ def main_fun(data_path, data_name):
     for l in labels:
         this_size = shapefilter.GetPhysicalSize(l)
         # 滤除较小体素数量的
-        if this_size > MIN_BODY_VOX:
+        if this_size > MIN_BODY_PHY_VOX:
             logging.debug("{}, {}".format(l, this_size))
             if this_size > largest_size:
                 largest_size = this_size
@@ -277,7 +277,7 @@ def main_fun(data_path, data_name):
     _notice()
     logging.debug("bed:")
     for l in labels:
-        if shapefilter.GetPhysicalSize(l) > MIN_BED_VOX:
+        if shapefilter.GetPhysicalSize(l) > MIN_BED_PHY_VOX:
             logging.debug("{},{},{}".format(l, shapefilter.GetPhysicalSize(l), shapefilter.GetFlatness(l)))
             center_x, center_y, center_z = shapefilter.GetCentroid(l)
             # 图像上下1/4区间
