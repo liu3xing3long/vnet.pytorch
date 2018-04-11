@@ -8,7 +8,7 @@ Created on Tue Jan 23 17:52:22 2018
 
 import os
 import sys
-import math
+# import math
 import time
 import logging
 import SimpleITK as sitk
@@ -21,33 +21,41 @@ data_output_path = "/home/liuxinglong/work/vnet.pytorch/orig_imgs/fuzzy_seg"
 # data_name = "LKDS-00001.mhd"
 
 ###################################
-## labeling constants
+# labeling constants
 LUNG_VOX_VAL = 64
 BODY_VOX_VAL = 128
 BED_VOX_VAL = 192
 
 ###################################
-### variables
+# variables
 MIN_LUNG_PHY_VOX = 10000.0
 MIN_BODY_PHY_VOX = 100000.0
 MIN_BED_PHY_VOX = 5000.0
 THRESHOLD = [-500, 2000]
 
 ###################################
-LUNG_W_PER = 0.95 # !! this should be discussed
-LUNG_H_PER = 0.95 # !! this should be discussed
+LUNG_W_PER = 0.95  # !! this should be discussed
+LUNG_H_PER = 0.95  # !! this should be discussed
 LUNG_CENTER_MOV = 0.25
 
 ###################################
 BED_FLATNESS = 2.0
 BED_D_PER = 0.125
 
+###################################
+# 65 * 65 * 65 / 0.7 / 0.7 / 2.5
+MAX_HOLE_SIZE = 195288.0 * 2
+
 ##################################
-### debug vars
+# debug vars
 total_debug_time = 0.0
+total_debug_files = 0
+
+DEBUG_OUTPUT = True
+
 
 ###################################
-### global medical image gpu filter
+# global medical image gpu filter
 def check_medgpu():
     try:
         medImageFilter = sitk.MedImageGPUFilter()
@@ -68,11 +76,11 @@ def init_logging(logFilename):
     Init for logging
     """
     logging.basicConfig(
-        level    = logging.DEBUG,
-        format   = 'LINE %(lineno)-4d  %(levelname)-8s %(message)s',
-        datefmt  = '%m-%d %H:%M',
-        filename = logFilename,
-        filemode = 'w')
+            level=logging.DEBUG,
+            format='LINE %(lineno)-4d  %(levelname)-8s %(message)s',
+            datefmt='%m-%d %H:%M',
+            filename=logFilename,
+            filemode='w')
     # define a Handler which writes INFO messages or higher to the sys.stderr
     console = logging.StreamHandler()
     console.setLevel(logging.DEBUG)
@@ -91,9 +99,12 @@ def main_fun(data_path, data_name):
     img = sitk.ReadImage(os.path.join(data_path, data_name))
     img_w, img_h, img_d = img.GetSize()
     img_phy_w, img_phy_h, img_phy_d = np.array(img.GetSpacing()) * np.array(img.GetSize())
-    img_center_x, img_center_y, img_center_z =  np.array(img.GetOrigin()) + \
-                                                 np.array([img_phy_w, img_phy_h, img_phy_d])/2.0
-    
+    img_center_x, img_center_y, img_center_z = np.array(img.GetOrigin()) + \
+                                               np.array([img_phy_w, img_phy_h, img_phy_d]) / 2.0
+
+    ###########################
+    img = medImageFilter.Mean(img)
+
     ###########################
     # debugging time
     start_time = time.time()
@@ -104,7 +115,7 @@ def main_fun(data_path, data_name):
 
     dilate_img = medImageFilter.BinaryDilate(thr_img)
     start_img = medImageFilter.BinaryErode(dilate_img)
-    
+
     ###########################
     # sitk.Show(start_img)
     ###########################
@@ -114,41 +125,58 @@ def main_fun(data_path, data_name):
     invert_img = sitk.InvertIntensity(start_img, maximum=1.0)
     lmap = sitk.BinaryImageToLabelMap(invert_img)
     limg = sitk.LabelMapToLabel(lmap)
-    
+
     shapefilter = sitk.LabelShapeStatisticsImageFilter()
     llshape = shapefilter.Execute(limg)
     labels = shapefilter.GetLabels()
     lung_labels = []
     _notice()
     logging.debug("lung: ({},{},{}), ({},{},{}), ({},{},{})".format(img_d, img_w, img_h, \
-                                                img_center_x, img_center_y, img_center_z, \
-                                                img_phy_d, img_phy_w, img_phy_h))
+                                                                    img_center_x, img_center_y, img_center_z, \
+                                                                    img_phy_d, img_phy_w, img_phy_h))
 
     for l in labels:
-        if shapefilter.GetPhysicalSize(l) > MIN_LUNG_PHY_VOX:
+        logging.debug("LUNG: evaluating {}".format(l))
+        phy_size = shapefilter.GetPhysicalSize(l)
+        if phy_size > MIN_LUNG_PHY_VOX:
             bbox = shapefilter.GetBoundingBox(l)
             # at the center of the image
             # size can not occupy the whole image
             # bbox = [idx_x, idx_y, idx_z, sz_x, sz_y, sz_z]
-            region_d = bbox[5] 
-            region_h = bbox[4] 
-            region_w = bbox[3] 
+            region_d = bbox[5]
+            region_h = bbox[4]
+            region_w = bbox[3]
             center_x, center_y, center_z = shapefilter.GetCentroid(l)
 
-            logging.debug("{},{}, ({},{},{}), ({},{},{})".\
-                format(l, shapefilter.GetPhysicalSize(l), region_d, region_w, region_h, center_x, center_y, center_z))
+            logging.debug("{},{}, ({},{},{}), ({},{},{})".format(l,
+                                                                 shapefilter.GetPhysicalSize(l), region_d, region_w,
+                                                                 region_h,
+                                                                 center_x, center_y, center_z))
 
             # NOTE, we do NOT setence image depth here! since lung sometimes would 
             # occupy the whole image alongside the depth direction
             # if  region_d < 0.9 * img_d and \
             # 大小小于90%原图大小，且中心在原图中心1/4以内
-            if  region_w < LUNG_W_PER * img_w and \
-                region_h < LUNG_H_PER * img_h and \
-                abs(center_x - img_center_x) < img_phy_w * LUNG_CENTER_MOV and \
-                abs(center_y - img_center_y) < img_phy_h * LUNG_CENTER_MOV and \
-                abs(center_z - img_center_z) < img_phy_d * LUNG_CENTER_MOV:
-                   logging.debug("adding {} to lung labels".format(l))
-                   lung_labels.append(l)
+            if region_w < LUNG_W_PER * img_w:
+                if region_h < LUNG_H_PER * img_h:
+                    if abs(center_x - img_center_x) < img_phy_w * LUNG_CENTER_MOV:
+                        if abs(center_y - img_center_y) < img_phy_h * LUNG_CENTER_MOV:
+                            if abs(center_z - img_center_z) < img_phy_d * LUNG_CENTER_MOV:
+                                logging.debug("adding {} to lung labels".format(l))
+                                lung_labels.append(l)
+                            else:
+                                logging.debug("LUNG: {} failed, NOT < img_phy_d * LUNG_CENTER_MOV".format(l))
+                        else:
+                            logging.debug("LUNG: {} failed, NOT < img_phy_h * LUNG_CENTER_MOV".format(l))
+                    else:
+                        logging.debug("LUNG: {} failed, NOT < img_phy_w * LUNG_CENTER_MOV".format(l))
+                else:
+                    logging.debug("LUNG: {} failed, NOT < LUNG_H_PER * img_h".format(l))
+            else:
+                logging.debug("LUNG: {} failed, NOT < LUNG_W_PER * img_h".format(l))
+        # too simple criteria
+        # else:
+            # logging.debug("LUNG: {} failed, NOT phy_size > MIN_LUNG_PHY_VOX ".format(l))
 
     ###########################
     llfiltered = sitk.GetArrayFromImage(limg)
@@ -170,43 +198,47 @@ def main_fun(data_path, data_name):
     lung_img_arr[lung_indicess] = 1
     lung_img = sitk.GetImageFromArray(lung_img_arr)
     lung_img.CopyInformation(start_img)
-    erode_img = start_img + lung_img
-    
+    whole_image = start_img + lung_img
     ######################
-    # sitk.Show(erode_img)
-    sitk.WriteImage(erode_img, os.path.join(data_output_path, data_name + "_whole.mhd"), True)
-    ######################  
+    # sitk.Show(whole_image)
+    # sitk.WriteImage(whole_image, os.path.join(data_output_path, data_name + "_whole.mhd"), True)
+    ######################
 
     ##########################################################################
+    erode_img = whole_image
     lmap = sitk.BinaryImageToLabelMap(erode_img)
     limg = sitk.LabelMapToLabel(lmap)
     shapefilter = sitk.LabelShapeStatisticsImageFilter()
     llshape = shapefilter.Execute(limg)
     labels = shapefilter.GetLabels()
-    
-    final_iters = 5
+
+    final_iters = 10
+    labels_left = 10
     curr_iter = 0
-    
+
     logging.debug("looking for largest region")
-    
-    while len(labels) > 20:
+
+    last_label_count = 1000000
+    # while len(labels) < last_label_count:
+    while len(labels) > labels_left or curr_iter < 4:
         curr_iter = curr_iter + 1
-        logging.debug("curr_iter {}, labels {}".format(curr_iter, len(labels))) 
-        
+        last_label_count = len(labels)
+        logging.debug("curr_iter {}, labels {}".format(curr_iter, len(labels)))
+
         erode_img = medImageFilter.BinaryErode(erode_img)
         lmap = sitk.BinaryImageToLabelMap(erode_img)
         limg = sitk.LabelMapToLabel(lmap)
         shapefilter = sitk.LabelShapeStatisticsImageFilter()
         llshape = shapefilter.Execute(limg)
         labels = shapefilter.GetLabels()
-        
+
         if curr_iter > final_iters:
             logging.debug("reduce labels to 1 failed")
             break
-    
+
     logging.debug("recovering shape iter {0}".format(1))
-    dilate_img = medImageFilter.BinaryDilate(erode_img)   
-        
+    dilate_img = medImageFilter.BinaryDilate(erode_img)
+
     for i in range(1, curr_iter):
         logging.debug("recovering shape iter {0}".format(i + 1))
         dilate_img = medImageFilter.BinaryDilate(dilate_img)
@@ -215,7 +247,7 @@ def main_fun(data_path, data_name):
     ##########################################################################
     lmap = sitk.BinaryImageToLabelMap(dilate_img)
     limg = sitk.LabelMapToLabel(lmap)
-    
+
     shapefilter = sitk.LabelShapeStatisticsImageFilter()
     llshape = shapefilter.Execute(limg)
     labels = shapefilter.GetLabels()
@@ -223,7 +255,7 @@ def main_fun(data_path, data_name):
     _notice()
     logging.debug("body:")
     largest_size = -1
-    largest_size_label = -1 
+    largest_size_label = -1
     for l in labels:
         this_size = shapefilter.GetPhysicalSize(l)
         # 滤除较小体素数量的
@@ -234,9 +266,9 @@ def main_fun(data_path, data_name):
                 largest_size_label = l
     if largest_size_label != -1:
         logging.debug("adding {} to body labels".format(largest_size_label))
-        body_labels.append(largest_size_label)    
-        
-    ###########################
+        body_labels.append(largest_size_label)
+
+        ###########################
     llfiltered = sitk.GetArrayFromImage(limg)
     if len(body_labels) >= 2:
         op = np.logical_or(llfiltered == body_labels[0], llfiltered == body_labels[1])
@@ -260,7 +292,7 @@ def main_fun(data_path, data_name):
     ######################
     # sitk.Show(whole_body_img)
     ######################
-        
+
     ###########################################################################
     no_body_no_lung_img = start_img - body_img - lung_img
 
@@ -271,7 +303,7 @@ def main_fun(data_path, data_name):
     shapefilter = sitk.LabelShapeStatisticsImageFilter()
     llshape = shapefilter.Execute(limg)
     labels = shapefilter.GetLabels()
-    
+
     # seg_labels = []
     bed_labels = []
     _notice()
@@ -281,11 +313,18 @@ def main_fun(data_path, data_name):
             logging.debug("{},{},{}".format(l, shapefilter.GetPhysicalSize(l), shapefilter.GetFlatness(l)))
             center_x, center_y, center_z = shapefilter.GetCentroid(l)
             # 图像上下1/4区间
-            if shapefilter.GetFlatness(l) > BED_FLATNESS and \
-                abs(center_y - img_center_y) > img_phy_h * BED_D_PER:
-                logging.debug("adding {} to bed".format(l))
-                bed_labels.append(l)
-                     
+            if shapefilter.GetFlatness(l) > BED_FLATNESS:
+                if abs(center_y - img_center_y) > img_phy_h * BED_D_PER:
+                    logging.debug("adding {} to bed".format(l))
+                    bed_labels.append(l)
+                else:
+                    logging.debug("BED: {} failed, NOT > img_phy_h * BED_D_PER".format(l))
+            else:
+                logging.debug("BED: {} failed, NOT > BED_FLATNESS".format(l))
+        # too simple criteria
+        # else:
+            # logging.debug("BED: {} failed, NOT > MIN_BED_PHY_VOX".format(l))
+
     ###########################
     llfiltered = sitk.GetArrayFromImage(limg)
     op = np.zeros(llfiltered.shape)
@@ -293,7 +332,7 @@ def main_fun(data_path, data_name):
         op = np.logical_or(llfiltered == bed_labels[0], llfiltered == bed_labels[1])
         for lidx in range(2, len(bed_labels)):
             op = np.logical_or(op, llfiltered == bed_labels[lidx])
-    elif len(bed_labels)== 1:
+    elif len(bed_labels) == 1:
         op = (llfiltered == bed_labels[0])
     else:
         logging.debug("bed label not found!")
@@ -309,7 +348,7 @@ def main_fun(data_path, data_name):
     # further post-processing
     bed_img = medImageFilter.BinaryErode(bed_img)
     bed_img_array = sitk.GetArrayFromImage(bed_img)
-    bed_indicess = np.where(bed_img_array == 1)   
+    bed_indicess = np.where(bed_img_array == 1)
 
     ######################
     # sitk.Show(bed_img)
@@ -320,56 +359,65 @@ def main_fun(data_path, data_name):
     end_time = time.time()
     this_time = end_time - start_time
     total_debug_time = total_debug_time + this_time
-    logging.debug( "data {0}, process time {1}".format(data_name, this_time) )
+    logging.debug("data {0}, process time {1}".format(data_name, this_time))
     ###########################
 
     ###########################################################################
     # show
     # NOTE body indices include lung indices, so set lung last
-    llmask[bed_indicess] = BED_VOX_VAL    
-    llmask[body_indicess] = BODY_VOX_VAL 
-    llmask[lung_indicess] = LUNG_VOX_VAL   
-    
+    llmask[bed_indicess] = BED_VOX_VAL
+    llmask[body_indicess] = BODY_VOX_VAL
+    llmask[lung_indicess] = LUNG_VOX_VAL
+
     newimg = sitk.GetImageFromArray(llmask)
     newimg.CopyInformation(limg)
     # # sitk.Show(newimg)
     write_path = os.path.join(data_output_path, data_name + "_seg.mhd")
     logging.debug("writing to {}".format(write_path))
     sitk.WriteImage(newimg, write_path, True)
-        
+
     ###########################################################################
     # extract the center slice for better visualization
-    whole_slice = newimg[:,:,img_d/2]
-    whole_slice = sitk.Cast(whole_slice, sitk.sitkUInt8)    
-    sitk.WriteImage(whole_slice, os.path.join(data_output_path, data_name + "_slice.png"))
+    whole_slice = newimg[:, :, int(img_d / 4)]
+    whole_slice = sitk.Cast(whole_slice, sitk.sitkUInt8)
+    sitk.WriteImage(whole_slice, os.path.join(data_output_path, data_name + "_slice_0.png"))
+
+    whole_slice = newimg[:, :, int(img_d / 2)]
+    whole_slice = sitk.Cast(whole_slice, sitk.sitkUInt8)
+    sitk.WriteImage(whole_slice, os.path.join(data_output_path, data_name + "_slice_1.png"))
+
+    whole_slice = newimg[:, :, int(img_d * 3 / 4)]
+    whole_slice = sitk.Cast(whole_slice, sitk.sitkUInt8)
+    sitk.WriteImage(whole_slice, os.path.join(data_output_path, data_name + "_slice_2.png"))
 
 
 def process_all(data_path):
     files = glob(os.path.join(data_path, "*.mhd"))
-    
+
     if len(files) == 0:
         logging.debug("folder {} does not contain any mhd files".format(data_path))
         return
 
     global total_debug_time
+    global total_debug_files
+
+    total_debug_files += len(files)
 
     for file in files:
         _notice()
         _notice()
-        
+
         logging.debug("processing {}".format(file))
         filepath, filename = os.path.split(file)
-        main_fun(data_path, filename)  
-
-    logging.debug( "total time {0}, average time {1}".format(total_debug_time, total_debug_time / len(files)) )
+        main_fun(data_path, filename)
 
 
 def process_single(path, filename):
     _notice()
     _notice()
-    
+
     logging.debug("processing {}, {}".format(path, filename))
-    main_fun(path, filename) 
+    main_fun(path, filename)
 
 
 if __name__ == "__main__":
@@ -385,18 +433,22 @@ if __name__ == "__main__":
         process_single(path, filename + ".mhd")
     else:
         data_paths = [
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset00",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset01",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset02",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset03",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset04",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset05",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset06",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset07",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset08",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset09",
-                     "/home/liuxinglong/data/TIANCHI/all/train_subset10"
-                     ]
-        
+            "/home/liuxinglong/data/TIANCHI/all/train_subset00",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset01",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset02",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset03",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset04",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset05",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset06",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset07",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset08",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset09",
+            "/home/liuxinglong/data/TIANCHI/all/train_subset10"
+        ]
+
         for path in data_paths:
             process_all(path)
+
+        logging.debug(
+                "total time {0}, average time {1}".format(total_debug_time,
+                                                          total_debug_time / float(total_debug_files)))
