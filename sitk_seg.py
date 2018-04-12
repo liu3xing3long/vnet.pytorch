@@ -28,8 +28,8 @@ BED_VOX_VAL = 192
 
 ###################################
 # variables
-MIN_LUNG_PHY_VOX = 10000.0
-MIN_BODY_PHY_VOX = 100000.0
+MIN_LUNG_PHY_VOX = 100000.0
+MIN_BODY_PHY_VOX = 1000000.0
 MIN_BED_PHY_VOX = 5000.0
 THRESHOLD = [-500, 2000]
 
@@ -37,6 +37,7 @@ THRESHOLD = [-500, 2000]
 LUNG_W_PER = 0.95  # !! this should be discussed
 LUNG_H_PER = 0.95  # !! this should be discussed
 LUNG_CENTER_MOV = 0.25
+LUNG_CENTER_MOV_H = 0.5
 
 ###################################
 BED_FLATNESS = 2.0
@@ -44,7 +45,7 @@ BED_D_PER = 0.125
 
 ###################################
 # 65 * 65 * 65 / 0.7 / 0.7 / 2.5
-MAX_HOLE_SIZE = 195288.0 * 2
+MAX_HOLE_SIZE = 1000000.0
 
 ##################################
 # debug vars
@@ -136,7 +137,7 @@ def main_fun(data_path, data_name):
                                                                     img_phy_d, img_phy_w, img_phy_h))
 
     for l in labels:
-        logging.debug("LUNG: evaluating {}".format(l))
+        # logging.debug("LUNG: evaluating {}".format(l))
         phy_size = shapefilter.GetPhysicalSize(l)
         if phy_size > MIN_LUNG_PHY_VOX:
             bbox = shapefilter.GetBoundingBox(l)
@@ -161,11 +162,11 @@ def main_fun(data_path, data_name):
                 if region_h < LUNG_H_PER * img_h:
                     if abs(center_x - img_center_x) < img_phy_w * LUNG_CENTER_MOV:
                         if abs(center_y - img_center_y) < img_phy_h * LUNG_CENTER_MOV:
-                            if abs(center_z - img_center_z) < img_phy_d * LUNG_CENTER_MOV:
+                            if abs(center_z - img_center_z) < img_phy_d * LUNG_CENTER_MOV_H:
                                 logging.debug("adding {} to lung labels".format(l))
                                 lung_labels.append(l)
                             else:
-                                logging.debug("LUNG: {} failed, NOT < img_phy_d * LUNG_CENTER_MOV".format(l))
+                                logging.debug("LUNG: {} failed, NOT < img_phy_d * LUNG_CENTER_MOV_H".format(l))
                         else:
                             logging.debug("LUNG: {} failed, NOT < img_phy_h * LUNG_CENTER_MOV".format(l))
                     else:
@@ -176,7 +177,7 @@ def main_fun(data_path, data_name):
                 logging.debug("LUNG: {} failed, NOT < LUNG_W_PER * img_h".format(l))
         # too simple criteria
         # else:
-            # logging.debug("LUNG: {} failed, NOT phy_size > MIN_LUNG_PHY_VOX ".format(l))
+        # logging.debug("LUNG: {} failed, NOT phy_size > MIN_LUNG_PHY_VOX ".format(l))
 
     ###########################
     llfiltered = sitk.GetArrayFromImage(limg)
@@ -212,13 +213,11 @@ def main_fun(data_path, data_name):
     llshape = shapefilter.Execute(limg)
     labels = shapefilter.GetLabels()
 
-    final_iters = 10
-    labels_left = 10
+    final_iters = 5
+    labels_left = 20
     curr_iter = 0
 
-    logging.debug("looking for largest region")
-
-    last_label_count = 1000000
+    logging.debug("pre-detect body label, looking for largest region")
     # while len(labels) < last_label_count:
     while len(labels) > labels_left or curr_iter < 4:
         curr_iter = curr_iter + 1
@@ -235,15 +234,129 @@ def main_fun(data_path, data_name):
         if curr_iter > final_iters:
             logging.debug("reduce labels to 1 failed")
             break
-
     logging.debug("recovering shape iter {0}".format(1))
     dilate_img = medImageFilter.BinaryDilate(erode_img)
 
     for i in range(1, curr_iter):
         logging.debug("recovering shape iter {0}".format(i + 1))
         dilate_img = medImageFilter.BinaryDilate(dilate_img)
+    ##########################################################################
+    lmap = sitk.BinaryImageToLabelMap(dilate_img)
+    limg = sitk.LabelMapToLabel(lmap)
 
-    # dilate_img = dilate_img - lung_img
+    shapefilter = sitk.LabelShapeStatisticsImageFilter()
+    llshape = shapefilter.Execute(limg)
+    labels = shapefilter.GetLabels()
+    _notice()
+    logging.debug("pre-detect body:")
+    largest_size = -1
+    largest_size_label = -1
+    pre_detect_body_center = None
+    pre_detect_body_bbox = None
+    for l in labels:
+        this_size = shapefilter.GetPhysicalSize(l)
+        # 滤除较小体素数量的
+        if this_size > MIN_BODY_PHY_VOX:
+            logging.debug("{}, {}".format(l, this_size))
+            if this_size > largest_size:
+                largest_size = this_size
+                largest_size_label = l
+    if largest_size_label != -1:
+        pre_detect_body_center = shapefilter.GetCentroid(largest_size_label)
+        pre_detect_body_bbox = shapefilter.GetBoundingBox(largest_size_label)
+        logging.debug("pre_detect {} to body labels, centroid ({}), bbox ({})".
+                      format(largest_size_label, pre_detect_body_center, pre_detect_body_bbox))
+
+    ##########################################################################
+    # lets fill the hole in the image
+    invert_whole_image = sitk.InvertIntensity(whole_image, maximum=1.0)
+    lmap = sitk.BinaryImageToLabelMap(invert_whole_image)
+    limg = sitk.LabelMapToLabel(lmap)
+    shapefilter = sitk.LabelShapeStatisticsImageFilter()
+    llshape = shapefilter.Execute(limg)
+    labels = shapefilter.GetLabels()
+    hole_labels = []
+    for l in labels:
+        this_size = shapefilter.GetPhysicalSize(l)
+        hole_bbox = shapefilter.GetBoundingBox(l)
+
+        center_x_img_space = hole_bbox[0] + hole_bbox[3] / 2
+        center_y_img_space = hole_bbox[1] + hole_bbox[4] / 2
+        center_z_img_space = hole_bbox[2] + hole_bbox[5] / 2
+
+        pre_detect_body_x_img_space = pre_detect_body_bbox[0] + pre_detect_body_bbox[3] / 2
+        pre_detect_body_y_img_space = pre_detect_body_bbox[1] + pre_detect_body_bbox[4] / 2
+        pre_detect_body_z_img_space = pre_detect_body_bbox[2] + pre_detect_body_bbox[5] / 2
+
+        if this_size < MAX_HOLE_SIZE:
+            if abs(center_x_img_space - pre_detect_body_x_img_space) < pre_detect_body_bbox[3] / 2:
+                if abs(center_y_img_space - pre_detect_body_y_img_space) < pre_detect_body_bbox[4] / 2:
+                    if abs(center_z_img_space - pre_detect_body_z_img_space) < pre_detect_body_bbox[5] / 2:
+                        # logging.debug("filling hole {}, size {}".format(l, this_size))
+                        hole_labels.append(l)
+        else:
+            logging.debug("HOLE: {} skipped, since size {} > MAX_HOLE_SIZE".format(l, this_size))
+
+    llfiltered = sitk.GetArrayFromImage(limg)
+    llmask = np.zeros(llfiltered.shape)
+    op = np.zeros(llfiltered.shape)
+    if len(hole_labels) >= 2:
+        op = np.logical_or(llfiltered == hole_labels[0], llfiltered == hole_labels[1])
+        for lidx in range(2, len(hole_labels)):
+            op = np.logical_or(op, llfiltered == hole_labels[lidx])
+    elif len(hole_labels) == 1:
+        op = (llfiltered == hole_labels[0])
+    else:
+        logging.debug("hole label not found !!")
+
+    hole_indicess = np.where(op == True)
+    hole_img_arr = np.zeros(llfiltered.shape, dtype=np.uint8)
+    hole_img_arr[hole_indicess] = 1
+    hole_img = sitk.GetImageFromArray(hole_img_arr)
+    hole_img.CopyInformation(whole_image)
+    whole_image = whole_image + hole_img
+
+    ######################
+    # sitk.Show(erode_img)
+    # sitk.WriteImage(erode_img, os.path.join(data_output_path, data_name + "_whole.mhd"), True)
+    ######################
+
+    ##########################################################################
+    # actually working on body
+    erode_img = whole_image
+    lmap = sitk.BinaryImageToLabelMap(erode_img)
+    limg = sitk.LabelMapToLabel(lmap)
+    shapefilter = sitk.LabelShapeStatisticsImageFilter()
+    llshape = shapefilter.Execute(limg)
+    labels = shapefilter.GetLabels()
+
+    final_iters = 10
+    labels_left = 20
+    curr_iter = 0
+
+    logging.debug("looking for largest region")
+    # while len(labels) < last_label_count:
+    while len(labels) > labels_left or curr_iter < 4:
+        curr_iter = curr_iter + 1
+        last_label_count = len(labels)
+        logging.debug("curr_iter {}, labels {}".format(curr_iter, len(labels)))
+
+        erode_img = medImageFilter.BinaryErode(erode_img)
+        lmap = sitk.BinaryImageToLabelMap(erode_img)
+        limg = sitk.LabelMapToLabel(lmap)
+        shapefilter = sitk.LabelShapeStatisticsImageFilter()
+        llshape = shapefilter.Execute(limg)
+        labels = shapefilter.GetLabels()
+
+        if curr_iter > final_iters:
+            logging.debug("reduce labels to 1 failed")
+            break
+    logging.debug("recovering shape iter {0}".format(1))
+    dilate_img = medImageFilter.BinaryDilate(erode_img)
+
+    for i in range(1, curr_iter):
+        logging.debug("recovering shape iter {0}".format(i + 1))
+        dilate_img = medImageFilter.BinaryDilate(dilate_img)
     ##########################################################################
     lmap = sitk.BinaryImageToLabelMap(dilate_img)
     limg = sitk.LabelMapToLabel(lmap)
@@ -280,7 +393,7 @@ def main_fun(data_path, data_name):
         logging.debug("body label not found !!")
 
     body_indicess = np.where(op == True)
-    # llmask[body_indicess] = BODY_VOX_VAL 
+    # llmask[body_indicess] = BODY_VOX_VAL
 
     # remove all other tissues
     whole_body_img_array = np.zeros(llmask.shape, dtype=np.uint8)
@@ -323,7 +436,7 @@ def main_fun(data_path, data_name):
                 logging.debug("BED: {} failed, NOT > BED_FLATNESS".format(l))
         # too simple criteria
         # else:
-            # logging.debug("BED: {} failed, NOT > MIN_BED_PHY_VOX".format(l))
+        # logging.debug("BED: {} failed, NOT > MIN_BED_PHY_VOX".format(l))
 
     ###########################
     llfiltered = sitk.GetArrayFromImage(limg)
@@ -373,6 +486,7 @@ def main_fun(data_path, data_name):
     newimg.CopyInformation(limg)
     # # sitk.Show(newimg)
     write_path = os.path.join(data_output_path, data_name + "_seg.mhd")
+
     logging.debug("writing to {}".format(write_path))
     sitk.WriteImage(newimg, write_path, True)
 
