@@ -44,8 +44,8 @@ ct_targets = lung_masks
 # target_split = [4, 4, 4]
 
 # 64x64x64 mm3
-# target_split = [4, 5, 5]
-target_split = [5, 6, 6]
+target_split = [4, 5, 5]
+# target_split = [5, 6, 6]
 # target_split = [5, 5, 5]
 # target_split = [5, 4, 4]
 

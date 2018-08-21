@@ -1,10 +1,3 @@
-#!/usr/bin/env python2
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Aug 24 17:29:46 2017
-
-@author: liuxinglong01
-"""
 import sys
 import os
 from os import listdir

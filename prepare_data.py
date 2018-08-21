@@ -1,17 +1,10 @@
-#!/usr/bin/env python2
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Aug 24 17:29:46 2017
-
-@author: liuxinglong01
-"""
 import sys
 import os
 from os import listdir
 from os.path import isfile, join
 import torchbiomed.datasets as dset
 
-root_path = '/home/liuxinglong01/1HDD/data/LUNA'
+root_path = '/mnt/lustre/liuxinglong/data/LUNA'
 
 ##########################################################
 target_path = 'luna16_1mm_xyz'
